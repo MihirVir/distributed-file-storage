@@ -8,9 +8,13 @@ import (
 
 func TestTcpTrasnport(t *testing.T) {
 	listenAdd := ":3001"
-	tr := NewTcpTransport(listenAdd)
 
-	assert.Equal(t, tr.listenAddress, listenAdd)
+	tcpOpts := &TCPTransportOpts{
+		ListenAddr: ":3000",
+	}
+	tr := NewTcpTransport(*tcpOpts)
+
+	assert.Equal(t, tr.ListenAddr, listenAdd)
 
 	// Server
 	// tr.Start()

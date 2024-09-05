@@ -14,6 +14,11 @@ type TCPPeer struct {
 	// if we accept and retrieve a connection -> outbound == false
 	outbound bool
 }
+type TCPTransportOpts struct {
+	ListenAddr    string
+	HandshakeFunc HandshakeFunc
+	Decoder       Decoder
+}
 
 func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 	return &TCPPeer{
@@ -23,22 +28,26 @@ func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 }
 
 type TCPTransport struct {
-	listenAddress string
-	listener      net.Listener
-	mu            sync.RWMutex
-	peers         map[net.Addr]Peer
+	TCPTransportOpts
+	listener net.Listener
+
+	mu    sync.RWMutex
+	peers map[net.Addr]Peer
 }
 
-func NewTcpTransport(listenAddr string) *TCPTransport {
+func NewTcpTransport(opts TCPTransportOpts) *TCPTransport {
 	return &TCPTransport{
-		listenAddress: listenAddr,
+		TCPTransportOpts: opts,
 	}
 }
 
 func (t *TCPTransport) ListenAndStart() error {
 	var err error
-	t.listener, err = net.Listen("tcp", t.listenAddress)
+	// trying to establish a TCP connection
+	t.listener, err = net.Listen("tcp", t.ListenAddr)
 
+	// if there's an error establishing a TCP connection
+	// we will throw the error
 	if err != nil {
 		return err
 	}
@@ -51,6 +60,11 @@ func (t *TCPTransport) ListenAndStart() error {
 }
 
 func (t *TCPTransport) startAcceptLoop() {
+	// after establishg we are looping thru (infinite loop) the incoming connections
+	// and if there are any incoming connections we accept them and create a peer out of it.
+	// Better explanation probs
+	// SERVER (RUNNING) <- peer2 initiates connection
+	// peer2 gets accepted
 	for {
 		conn, err := t.listener.Accept()
 		if err != nil {
@@ -65,5 +79,19 @@ func (t *TCPTransport) startAcceptLoop() {
 
 func (t *TCPTransport) handlePeer(conn net.Conn) {
 	peer := NewTCPPeer(conn, true)
-	fmt.Printf("new incoming connection %v", peer)
+	if err := t.HandshakeFunc(peer); err != nil {
+		conn.Close()
+		fmt.Printf("TCP handshake error: %s\n", err)
+		return
+	}
+
+	msg := &Message{}
+	for {
+		if err := t.Decoder.Decode(conn, msg); err != nil {
+			fmt.Printf("TCP error: %s\n", err)
+			continue
+		}
+
+		fmt.Printf("message: %+v\n", msg)
+	}
 }
