@@ -1,4 +1,4 @@
-module github.com/anthdm/foreverstore
+module mihir
 
 go 1.22.3
 

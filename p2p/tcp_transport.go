@@ -3,7 +3,6 @@ package p2p
 import (
 	"fmt"
 	"net"
-	"sync"
 )
 
 // TCPPeer represents the remote node over a TCP established connection
@@ -18,6 +17,7 @@ type TCPTransportOpts struct {
 	ListenAddr    string
 	HandshakeFunc HandshakeFunc
 	Decoder       Decoder
+	OnPeer        func(Peer) error
 }
 
 func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
@@ -27,71 +27,92 @@ func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 	}
 }
 
+// Close implements Peer Interface, which is used to close the remote connection
+func (p *TCPPeer) Close() error {
+	return p.conn.Close()
+}
+
 type TCPTransport struct {
 	TCPTransportOpts
 	listener net.Listener
+	rpch     chan RPC
+}
 
-	mu    sync.RWMutex
-	peers map[net.Addr]Peer
+// Consume implements the Transport Interface, which will return read-only channel
+// for reading the incoming messages received from another peer in the network
+func (t *TCPTransport) Consume() <-chan RPC {
+	return t.rpch
 }
 
 func NewTcpTransport(opts TCPTransportOpts) *TCPTransport {
 	return &TCPTransport{
 		TCPTransportOpts: opts,
+		rpch:             make(chan RPC),
 	}
 }
 
 func (t *TCPTransport) ListenAndStart() error {
 	var err error
-	// trying to establish a TCP connection
 	t.listener, err = net.Listen("tcp", t.ListenAddr)
 
-	// if there's an error establishing a TCP connection
-	// we will throw the error
 	if err != nil {
 		return err
 	}
 
-	// running startAcceptLoop to infinitely loop thru to check if any incoming connection
-	// or handlePeer
 	go t.startAcceptLoop()
 
 	return nil
 }
 
+/*
+startAcceptLoop is an infinite loop that listens for new connections.
+When a connection is detected, it accepts it and creates a new peer.
+*/
 func (t *TCPTransport) startAcceptLoop() {
-	// after establishg we are looping thru (infinite loop) the incoming connections
-	// and if there are any incoming connections we accept them and create a peer out of it.
-	// Better explanation probs
-	// SERVER (RUNNING) <- peer2 initiates connection
-	// peer2 gets accepted
 	for {
 		conn, err := t.listener.Accept()
 		if err != nil {
 			fmt.Printf("TCP accept error: %s\n", err)
 		}
-		// creating a new peer and accepting the incoming connection
-		// infinite loop cuz we want to check if any other peer is trying
-		// to connect
 		go t.handlePeer(conn)
 	}
 }
 
 func (t *TCPTransport) handlePeer(conn net.Conn) {
+	var err error
+	defer func() {
+		fmt.Printf("dropping peer connection: %s", err)
+		conn.Close()
+	}()
 	peer := NewTCPPeer(conn, true)
+
 	if err := t.HandshakeFunc(peer); err != nil {
 		conn.Close()
 		fmt.Printf("TCP handshake error: %s\n", err)
 		return
 	}
 
-	msg := &Message{}
+	/*
+		The purpose of this is to allow the user of the TCPTransport to define what happens when a new peer joins,
+		like logging the event, adding the peer to a list, or sending an initial message
+	*/
+	if t.OnPeer != nil {
+		if err := t.OnPeer(peer); err != nil {
+			return
+		}
+	}
+
+	rpc := RPC{}
 	for {
-		if err := t.Decoder.Decode(conn, msg); err != nil {
-			fmt.Printf("TCP error: %s\n", err)
-			continue
+		err := t.Decoder.Decode(conn, &rpc)
+
+		if err != nil {
+			return
 		}
 
-		fmt.Printf("message: %+v\n", msg)
+		rpc.From = conn.RemoteAddr()
+		t.rpch <- rpc
+
+		fmt.Printf("message: %+v\n", rpc)
 	}
 }
