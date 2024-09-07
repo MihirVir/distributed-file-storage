@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,13 +11,18 @@ import (
 
 func TestPathTransformFunc(t *testing.T) {
 	key := "momsbestpic"
-	pathname := CASPathTransfromFunc(key)
+	pathKey := CASPathTransfromFunc(key)
 	expectedpathname := "1ff35/21faa/379e9/6fa2f/01352/2a356/cc934/c23d2"
-	if pathname != expectedpathname {
-		t.Errorf("have %s want %s", pathname, expectedpathname)
+	expectedoriginal := "1ff3521faa379e96fa2f013522a356cc934c23d2"
+	if pathKey.Pathname != expectedpathname {
+		t.Errorf("have %s want %s", pathKey.Pathname, expectedpathname)
 	}
 
-	assert.Equal(t, pathname, expectedpathname)
+	if pathKey.Filename != expectedoriginal {
+		t.Errorf("have %s want %s", pathKey.Filename, expectedoriginal)
+	}
+	assert.Equal(t, pathKey.Pathname, expectedpathname)
+	assert.Equal(t, pathKey.Filename, expectedoriginal)
 }
 
 func TestStore(t *testing.T) {
@@ -24,10 +30,41 @@ func TestStore(t *testing.T) {
 		PathTransformFunc: CASPathTransfromFunc,
 	}
 	s := NewStore(opts)
-
-	data := bytes.NewReader([]byte("some ok bytes"))
-	if err := s.WriteStream("OK", data); err != nil {
+	key := "OK"
+	data := []byte("some jpg data")
+	if err := s.WriteStream(key, bytes.NewReader(data)); err != nil {
 		fmt.Println(err)
+		t.Error(err)
+	}
+
+	r, err := s.Read(key)
+	if err != nil {
+		t.Error(err)
+	}
+
+	b, _ := io.ReadAll(r)
+
+	fmt.Println(string(b))
+	if string(b) != string(data) {
+		t.Errorf("want %s have %s", data, b)
+	}
+
+	s.Delete(key)
+}
+
+func TestRemove(t *testing.T) {
+	opts := StoreOpts{
+		PathTransformFunc: CASPathTransfromFunc,
+	}
+	s := NewStore(opts)
+	key := "OK"
+	data := []byte("some jpg data")
+	if err := s.WriteStream(key, bytes.NewReader(data)); err != nil {
+		fmt.Println(err)
+		t.Error(err)
+	}
+
+	if err := s.Delete(key); err != nil {
 		t.Error(err)
 	}
 }
