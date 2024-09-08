@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"os"
 	"reflect"
@@ -128,6 +128,10 @@ func (s *Store) Read(key string) (io.Reader, error) {
 	return buf, err
 }
 
+func (s *Store) Write(key string, r io.Reader) error {
+	return s.WriteStream(key, r)
+}
+
 func (s *Store) ReadStream(key string) (io.ReadCloser, error) {
 	pathKey := s.PathTransformFunc(key)
 	pathKeyWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.AbsolutePath())
@@ -148,5 +152,9 @@ func (s *Store) Has(key string) bool {
 	pathKey := s.PathTransformFunc(key)
 	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.AbsolutePath())
 	_, err := os.Stat(fullPathWithRoot)
-	return err != fs.ErrNotExist
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+func (s *Store) Clear() error {
+	return os.RemoveAll(s.Root)
 }

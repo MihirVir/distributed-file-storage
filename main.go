@@ -1,35 +1,34 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"mihir/p2p"
+	"time"
 )
 
-func OnPeer(peer p2p.Peer) error {
-	peer.Close()
-	return nil
-}
-
 func main() {
-	tr := p2p.TCPTransportOpts{
+	tcpTransportOpts := p2p.TCPTransportOpts{
 		ListenAddr:    ":3000",
 		HandshakeFunc: p2p.NOPHandshakeFunc,
 		Decoder:       p2p.DefaultDecoder{},
-		OnPeer:        OnPeer,
+		// TODO: on peer func
 	}
 
-	t := p2p.NewTcpTransport(tr)
-	if err := t.ListenAndStart(); err != nil {
+	tcpTransport := p2p.NewTcpTransport(tcpTransportOpts)
+	fileServerOpts := FileServerOpts{
+		StorageRoot:       "3000_network",
+		PathTransformFunc: CASPathTransfromFunc,
+		Transport:         tcpTransport,
+	}
+	s := NewFileServer(fileServerOpts)
+
+	go func() {
+		time.Sleep(time.Second * 3)
+		s.Stop()
+	}()
+
+	if err := s.Start(); err != nil {
 		log.Fatal(err)
 	}
 
-	go func() {
-		for {
-			msg := <-t.Consume()
-			fmt.Printf("%+v\n", msg)
-		}
-	}()
-
-	select {}
 }
